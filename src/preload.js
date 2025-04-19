@@ -9,10 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Listen for the 'update-media-path' message from the main process
     ipcRenderer.on('update-media-path', (_event, path) => callback(path));
   },
-  // Function for renderer to request opening a path in the file explorer
-  openPath: (path) => {
-    shell.openPath(path); // Use shell module for safety
-  }
 });
 
 console.log('Preload script loaded.');

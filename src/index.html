@@ -58,6 +58,9 @@
             border-radius: 3px;
             font-family: 'Courier New', Courier, monospace;
             word-wrap: break-word;
+            display: inline-block; /* Helps with wrapping */
+            max-width: 100%;    /* Prevent overflow */
+            box-sizing: border-box; /* Include padding in width */
         }
         a {
            color: #0056b3;
@@ -75,7 +78,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Tello Drone Local Backend</h1>
+        <h1>Local Server</h1>
 
         <div class="status">
             Server Status: <span id="server-status" class="running">RUNNING</span>
@@ -90,9 +93,7 @@
             Photos and Videos will be saved in: <br>
             <code id="media-path">Loading...</code>
             <br>
-            <!-- Add a link to open the folder -->
-            <a href="#" id="open-folder-link" style="font-size: 0.85em; margin-top: 5px; display: inline-block;">Open Folder</a>
-        </div>
+           
 
         <div class="tip">
             Keep this application running while using the web controller.

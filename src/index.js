@@ -1,5 +1,5 @@
 // main.js / src/main.js
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'; // <-- Add dialog
+import { app, BrowserWindow, dialog} from 'electron'; // <-- Add dialog
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process'; // <-- Add spawn
