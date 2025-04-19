@@ -1,11 +1,21 @@
 // main.js / src/main.js
-import { app, BrowserWindow, dialog } from 'electron'; // <-- Add dialog
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'; // <-- Add dialog
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { spawn } from 'child_process'; // <-- Add spawn
 
 // --->>> Import your server starter function <<<---
 // Adjust the path if you placed server.js elsewhere (e.g., '../server.js')
-import { startServers } from '../server.js'; // Or wherever server.js is relative to main.js
+import { startServers, gracefulShutdown, uploadsDir as mediaUploadsPath } from '../server.js'; // Adjust path if needed server.js is relative to main.js
+
+// --- Determine __dirname for ES Modules ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+
+// Keep a global reference to the window object, if you don't, the window will
+// be closed automatically when the JavaScript object is garbage collected.
+let mainWindow;
 
 
 // --- FFmpeg Check Function ---
@@ -41,26 +51,42 @@ function checkFFmpeg(callback) {
 // --- End FFmpeg Check ---
 
 
-// --- Window Creation (Optional - You might remove this) ---
+// --- Window Creation --- (MODIFIED) ---
 const createWindow = () => {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+  mainWindow = new BrowserWindow({ // Assign to global mainWindow
+    width: 650, // Adjusted size for simple info
+    height: 550, // Adjusted size
     webPreferences: {
-      // preload: path.join(__dirname, 'preload.js'), // Keep if you need preload
-      nodeIntegration: false, // Best practice: Keep false
-      contextIsolation: true, // Best practice: Keep true
+      // --->>> Point to the preload script <<<---
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false, // Keep false for security
+      contextIsolation: true, // Keep true for security
     },
   });
 
-  // Load index.html - you might load a simple status page or nothing
-  // mainWindow.loadFile(path.join(__dirname, '../index.html')); // Adjust path if needed
+  // --->>> Load index.html <<<---
+  mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
-  // Open the DevTools (optional)
+  // --->>> Send media path AFTER window is ready <<<---
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (mainWindow && mediaUploadsPath) { // Ensure window exists and path was resolved
+        console.log(`Sending media path to renderer: ${mediaUploadsPath}`);
+        mainWindow.webContents.send('update-media-path', mediaUploadsPath);
+    } else {
+        console.error("Could not send media path - window or path missing.");
+    }
+  });
+
+
+  // Optional: Open the DevTools.
   // mainWindow.webContents.openDevTools();
 
-  return mainWindow; // Return window if you use it later
+  // Emitted when the window is closed.
+  mainWindow.on('closed', () => {
+    // Dereference the window object
+    mainWindow = null;
+  });
 };
 // --- End Window Creation ---
 
@@ -85,7 +111,7 @@ app.whenReady().then(() => {
         startServers(); // --->>> Call your server startup logic <<<---
         console.log('Backend servers initiated.');
 
-        // createWindow(); // <-- Call this ONLY if you want a visible window
+        createWindow(); // <-- Call this ONLY if you want a visible window
 
         // Optional: Show a notification that the server is running
         // (Requires 'notification' module from Electron)
@@ -106,10 +132,13 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     // On OS X it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    // Remove this if you don't have/want a window
-    // if (BrowserWindow.getAllWindows().length === 0) {
-    //   createWindow();
-    // }
+    if (BrowserWindow.getAllWindows().length === 0) {
+      // Check FFmpeg again if needed, or just create window if server is assumed running
+      if (mainWindow === null) {
+         console.log('Re-creating main window on activate.');
+         createWindow();
+      }
+    }
   });
 });
 
@@ -123,21 +152,30 @@ app.on('window-all-closed', () => {
   // To keep it running, comment out the app.quit() line.
   // You'll need another way to quit (e.g., Tray icon).
   if (process.platform !== 'darwin') {
-     // app.quit(); // <-- Comment this out to keep running without windows
-     console.log("Main window closed, but app continues running in background.");
-     console.log("Use Task Manager or Activity Monitor to quit, or implement a Tray icon.");
-  }
+    console.log('All windows closed. Quitting app.');
+
+     app.quit(); // <-- Comment this out to keep running without windows
+     
+  } else {
+    console.log('All windows closed, but app remains active on macOS.');
+ }
 });
 
-// Optional: Add graceful shutdown for the Electron app itself
+// --- Graceful Shutdown Integration ---
 app.on('before-quit', async (event) => {
-    console.log('Electron before-quit event triggered.');
-    // If your server.js has a gracefulShutdown function, call it here
-    // Example: assuming gracefulShutdown is exported from server.js
-    // event.preventDefault(); // Prevent immediate quitting
-    // import { gracefulShutdown } from './server.js'; // Make sure it's exported
-    // await gracefulShutdown(); // Wait for it to finish
-    // app.quit(); // Quit now
+  console.log('Electron before-quit event triggered.');
+  event.preventDefault(); // Prevent immediate quitting
+
+  try {
+      console.log('Calling gracefulShutdown from server.js...');
+      await gracefulShutdown(); // Wait for server cleanup
+      console.log('Graceful shutdown completed. Exiting Electron app.');
+  } catch (error) {
+      console.error('Error during graceful shutdown:', error);
+      // Log error but proceed to quit anyway
+  } finally {
+      app.exit(); // Exit the app explicitly after cleanup attempt
+  }
 });
 
 // In this file, you can also include capabilities like

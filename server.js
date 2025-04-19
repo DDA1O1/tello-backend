@@ -17,18 +17,12 @@ const __dirname = dirname(__filename); // to get the directory name of the file
 // Create separate folders for different media types if they don't exist
 const createMediaFolders = () => {
     try {
-        // --->>> Use Electron's userData path <<<---
         const userDataPath = electronApp.getPath('userData');
-        const uploadsDir = join(userDataPath, 'uploads'); // Store in user data folder
-
-        // Alternatively, use 'pictures' path:
-        // const picturesPath = electronApp.getPath('pictures');
-        // const uploadsDir = join(picturesPath, 'TelloAppUploads');
-
+        const uploadsDir = join(userDataPath, 'uploads');
         const photosDir = join(uploadsDir, 'photos');
         const mp4Dir = join(uploadsDir, 'mp4_recordings');
 
-        console.log(`Ensuring media folders exist in: ${uploadsDir}`); // Log the path
+        console.log(`Ensuring media folders exist in: ${uploadsDir}`);
 
         [uploadsDir, photosDir, mp4Dir].forEach(dir => {
             if (!fs.existsSync(dir)) {
@@ -37,7 +31,6 @@ const createMediaFolders = () => {
             }
         });
 
-        // Optional: Test write access (might fail in dev sometimes, more reliable after packaging)
         try {
             const testFile = join(photosDir, '.testwrite');
             fs.writeFileSync(testFile, 'test');
@@ -47,31 +40,22 @@ const createMediaFolders = () => {
              console.warn(`Could not confirm write access to ${photosDir}: ${writeError.message}`);
         }
 
-
-        return { uploadsDir, photosDir, mp4Dir }; // return the folders
+        // --->>> Return the base uploads directory as well <<<---
+        return { uploadsDir, photosDir, mp4Dir };
     } catch (error) {
         console.error('Error creating media folders in userData:', error);
-        // Try falling back to local path (might work in dev, not packaged)
-        try {
-             console.warn('Falling back to local path for media folders...');
-             const fallbackUploadsDir = join(__dirname, 'uploads');
-             // ... rest of fallback logic if needed ...
-             // return createLocalMediaFolders(); // If you create a separate func
-             throw error; // Or just rethrow original error
-        } catch (fallbackError) {
-             console.error('Fallback path creation also failed:', fallbackError);
-             throw error; // Rethrow the original more relevant error
-        }
+        throw error; // Rethrow the error
     }
 };
 
-// Initialize folders with error handling with global access
-let photosDir, mp4Dir;
+// Initialize folders and get the base path
+let photosDir, mp4Dir, uploadsDir; // <-- Add uploadsDir here
 try {
-    ({ photosDir, mp4Dir } = createMediaFolders());
+    ({ uploadsDir, photosDir, mp4Dir } = createMediaFolders()); // <-- Capture uploadsDir
 } catch (error) {
     console.error('Failed to create or verify media folders:', error);
-    process.exit(1);
+    // If this fails, we probably should exit, but Electron main process handles exit on error now.
+    // process.exit(1);
 }
 
 // Initialize Express app
@@ -82,7 +66,9 @@ const streamPort = 3001; // websocket port
 
 
 const corsOptions = {
-    origin: 'https://your-frontend-domain.com', // !!-- VERY IMPORTANT: Replace with your ACTUAL frontend domain --!
+    origin: 'https://your-frontend-domain.com', // !!-- IMPORTANT: CHANGE THIS to your frontend domain --!
+  // Or for local testing with Vite dev server:
+  // origin: 'http://localhost:5173', // Default Vite port
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     optionsSuccessStatus: 204
   };
@@ -558,34 +544,62 @@ app.post('/stop-recording', (req, res) => {
     }
 });
 
-// Add this improved graceful shutdown handler
+// Ensure this function handles closing droneClient, wss, and state cleanup
 const gracefulShutdown = async () => {
-    console.log('Starting graceful shutdown...');
-    
-    stopDroneMonitoring();
-    
-    wss.close(() => {
-        console.log('WebSocket server closed');
-    });
+    console.log('Starting graceful shutdown (server.js)...');
 
-    // Send emergency stop to drone
-    try {
-        await new Promise((resolve) => {
-            droneClient.send('emergency', 0, 'emergency'.length, TELLO_PORT, TELLO_IP, () => {
-                resolve();
+    stopDroneMonitoring();
+
+    // Close WebSocket Server
+    console.log('Closing WebSocket server...');
+    await new Promise(resolve => wss.close(resolve));
+    console.log('WebSocket server closed.');
+
+    // Send emergency stop to drone if connected
+    if (serverState.drone.connected) { // Check connection status from state
+        console.log('Sending emergency stop to drone...');
+        try {
+            await new Promise((resolve, reject) => {
+                // Add a timeout in case the drone doesn't respond
+                const timeoutId = setTimeout(() => reject(new Error('Emergency command timeout')), 2000);
+                droneClient.send('emergency', 0, 'emergency'.length, TELLO_PORT, TELLO_IP, (err) => {
+                    clearTimeout(timeoutId);
+                    if (err) {
+                        console.error('Error sending emergency command:', err.message);
+                        reject(err); // Reject promise on error
+                    } else {
+                        console.log('Emergency command sent.');
+                        resolve(); // Resolve on success
+                    }
+                });
             });
-        });
-    } catch (err) {
-        console.error('Error sending emergency command:', err.message);
+        } catch (err) {
+            console.error('Failed to send emergency command:', err.message);
+            // Continue shutdown even if emergency fails
+        }
     }
 
-    droneClient.close();
-    
-    // Clean up all state
+    // Close UDP Client
+    console.log('Closing UDP drone client...');
+    try {
+       // UDP close is synchronous AFAIK, but let's be safe
+       await new Promise(resolve => {
+          droneClient.close(() => {
+             console.log('UDP client closed.');
+             resolve();
+          });
+       });
+    } catch(err) {
+        console.error('Error closing UDP client:', err);
+    }
+
+
+    // Clean up all server state (kills FFmpeg processes, clears intervals, etc.)
+    console.log('Cleaning up server state...');
     serverState.cleanup();
 
-    console.log('Graceful shutdown completed');
-    process.exit(0);
+    console.log('Graceful shutdown (server.js) completed.');
+    // No process.exit(0) here - let the main Electron process handle exiting
 };
 
 // Handle different termination signals
@@ -613,8 +627,11 @@ const startServers = () => {
             console.log('Both servers Express and WebSocket are running');
         }
     });
+    // Return the path for the main process to use
+    return { uploadsDir }; // Return the path
 };
 
 //startServers(); 
 
-export { startServers };
+// --- EXPORTS ---
+export { startServers, gracefulShutdown, uploadsDir }; // Export necessary 
