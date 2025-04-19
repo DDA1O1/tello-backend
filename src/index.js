@@ -1,12 +1,18 @@
 // main.js / src/main.js
-import { app, BrowserWindow, dialog} from 'electron'; // <-- Add dialog
+import { app, BrowserWindow, dialog} from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process'; // <-- Add spawn
+import { spawn } from 'child_process'; 
+import started from 'electron-squirrel-startup';
 
-// --->>> Import your server starter function <<<---
-// Adjust the path if you placed server.js elsewhere (e.g., '../server.js')
+
 import { startServers, gracefulShutdown, uploadsDir as mediaUploadsPath } from '../server.js'; // Adjust path if needed server.js is relative to main.js
+
+
+if (started) {
+  app.quit();
+}
+
 
 // --- Determine __dirname for ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
