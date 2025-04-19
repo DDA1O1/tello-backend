@@ -66,9 +66,9 @@ const streamPort = 3001; // websocket port
 
 
 const corsOptions = {
-    origin: 'https://your-frontend-domain.com', // !!-- IMPORTANT: CHANGE THIS to your frontend domain --!
+    //origin: 'https://your-frontend-domain.com', // !!-- IMPORTANT: CHANGE THIS to your frontend domain --!
   // Or for local testing with Vite dev server:
-  // origin: 'http://localhost:5173', // Default Vite port
+    origin: ['https://my-drone-app.netlify.app', 'http://localhost:5173'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     optionsSuccessStatus: 204
   };
